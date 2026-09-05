@@ -176,15 +176,6 @@ installed on your organisation with contents write on the signature repository,
 minted per run with `actions/create-github-app-token`, passed as
 `signature-token`.
 
-## Prior art
-
-[cla-assistant](https://github.com/cla-assistant/cla-assistant) is the original
-and stores signatures for you as a hosted service.
-[contributor-assistant/github-action](https://github.com/contributor-assistant/github-action)
-was the action-shaped version of it and was archived in March 2026. This is a
-smaller thing built on the same idea: keep the state in a repository, keep the
-gate in a commit status.
-
 ## Licence
 
 MIT.
