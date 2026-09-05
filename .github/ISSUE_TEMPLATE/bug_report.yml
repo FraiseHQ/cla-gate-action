@@ -1,0 +1,62 @@
+name: Bug report
+description: The action does something wrong.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: >-
+        Security problems go through
+        [private vulnerability reporting](https://github.com/FraiseHQ/cla-gate-action/security/advisories/new),
+        not here. Redact tokens from anything you paste.
+
+  - type: input
+    id: version
+    attributes:
+      label: Action version
+      description: The ref your workflow pins, as a tag or a commit SHA.
+      placeholder: FraiseHQ/cla-gate-action@v1.0.0
+    validations:
+      required: true
+
+  - type: dropdown
+    id: event
+    attributes:
+      label: Triggering event
+      options:
+        - pull_request_target
+        - issue_comment
+        - Both, or not sure
+    validations:
+      required: true
+
+  - type: dropdown
+    id: signature-repo
+    attributes:
+      label: Where are signatures stored?
+      options:
+        - The same repository as the pull request
+        - A separate signature repository
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what you saw instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: workflow
+    attributes:
+      label: Workflow
+      description: The job that uses the action.
+      render: yaml
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Job log
+      description: The relevant part of the failing step's output.
+      render: shell
