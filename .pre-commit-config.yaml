@@ -1,0 +1,22 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: ['--maxkb=700']  # Increase the limit to 700 KB
+      - id: check-merge-conflict
+      - id: check-shebang-scripts-are-executable
+      - id: detect-private-key
+      - id: debug-statements
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: mixed-line-ending
+        args: ['--fix=lf']
+      - id: check-json
+        name: Check JSON syntax
+
+  - repo: https://github.com/biomejs/pre-commit
+    rev: v2.5.12
+    hooks:
+      - id: biome-check
+        additional_dependencies: ["@biomejs/biome@2.5.12"]

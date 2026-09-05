@@ -1,0 +1,23 @@
+{
+  "name": "cla-gate-action",
+  "version": "0.1.0",
+  "description": "CLA gate for GitHub Actions workflows",
+  "private": true,
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=22.18"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts",
+    "lint": "biome check .",
+    "format": "biome check --write .",
+    "check": "npm run lint && npm run typecheck && npm test"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.5.12",
+    "@types/node": "^22.20.1",
+    "typescript": "^7.0.2"
+  }
+}

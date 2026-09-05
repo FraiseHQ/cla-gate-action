@@ -1,0 +1,129 @@
+name: CLA Gate
+description: >-
+  Require contributors to sign a contributor licence agreement before merge,
+  with signatures stored in a repository you control.
+author: FraiseHQ
+
+branding:
+  icon: check-square
+  color: red
+
+inputs:
+  cla-url:
+    description: Link to the CLA text shown to contributors.
+    required: true
+
+  token:
+    description: >-
+      Token for the pull request repository: reads commits, writes the commit
+      status and the comment. The workflow's own GITHUB_TOKEN is enough.
+    required: false
+    default: ${{ github.token }}
+
+  signature-repo:
+    description: >-
+      owner/name of the repository holding signatures. Defaults to the pull
+      request's own repository.
+    required: false
+    default: ""
+
+  signature-token:
+    description: >-
+      Token with contents:write on signature-repo. Required when that is a
+      different repository, because GITHUB_TOKEN cannot write across
+      repositories. Defaults to `token`.
+    required: false
+    default: ""
+
+  signature-branch:
+    description: Branch holding the signature and allowlist files.
+    required: false
+    default: main
+
+  signature-path:
+    description: Path to the signature file within signature-repo.
+    required: false
+    default: signatures.json
+
+  allowlist-path:
+    description: >-
+      Path to the allowlist file within signature-repo. A missing file is not
+      an error; `*[bot]` applies by default.
+    required: false
+    default: allowlist.json
+
+  allowlist:
+    description: Extra allowlist entries, space separated, merged with the file.
+    required: false
+    default: ""
+
+  status-context:
+    description: >-
+      Name of the commit status. This is the context to require in branch
+      protection — not the workflow job name.
+    required: false
+    default: cla/signed
+
+  fail-on-unsigned:
+    description: >-
+      Fail the job when a signature is missing. The commit status is set either
+      way; set false if you want the status alone to gate merges.
+    required: false
+    default: "true"
+
+  node-version:
+    description: Node version used to run the gate. Needs >= 22.18.
+    required: false
+    default: "24"
+
+outputs:
+  signed:
+    description: '"true" when every contributor is signed or allowlisted.'
+    value: ${{ steps.check.outputs.signed }}
+  missing:
+    description: Space separated logins still needing to sign.
+    value: ${{ steps.check.outputs.missing }}
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v4
+      with:
+        node-version: ${{ inputs.node-version }}
+
+    - name: Record signature
+      if: github.event_name == 'issue_comment'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CLA_URL: ${{ inputs.cla-url }}
+        SIG_REPO: ${{ inputs.signature-repo }}
+        SIG_TOKEN: ${{ inputs.signature-token }}
+        SIG_BRANCH: ${{ inputs.signature-branch }}
+        SIG_PATH: ${{ inputs.signature-path }}
+        ALLOWLIST_PATH: ${{ inputs.allowlist-path }}
+        ALLOWLIST: ${{ inputs.allowlist }}
+        STATUS_CONTEXT: ${{ inputs.status-context }}
+      run: >-
+        node "$GITHUB_ACTION_PATH/src/cla.ts" sign
+        "${{ github.event.issue.number }}"
+        "${{ github.event.comment.user.login }}"
+        "${{ github.event.comment.user.id }}"
+
+    - name: Check signatures
+      id: check
+      shell: bash
+      env:
+        GH_TOKEN: ${{ inputs.token }}
+        CLA_URL: ${{ inputs.cla-url }}
+        SIG_REPO: ${{ inputs.signature-repo }}
+        SIG_TOKEN: ${{ inputs.signature-token }}
+        SIG_BRANCH: ${{ inputs.signature-branch }}
+        SIG_PATH: ${{ inputs.signature-path }}
+        ALLOWLIST_PATH: ${{ inputs.allowlist-path }}
+        ALLOWLIST: ${{ inputs.allowlist }}
+        STATUS_CONTEXT: ${{ inputs.status-context }}
+        FAIL_ON_UNSIGNED: ${{ inputs.fail-on-unsigned }}
+      run: >-
+        node "$GITHUB_ACTION_PATH/src/cla.ts" check
+        "${{ github.event.pull_request.number || github.event.issue.number }}"

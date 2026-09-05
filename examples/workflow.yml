@@ -1,0 +1,30 @@
+# .github/workflows/cla.yml in the repository you want to gate.
+
+name: CLA
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  pull-requests: write
+  statuses: write
+
+jobs:
+  cla:
+    # Only run on pull requests, and on comments that are the signing phrase.
+    if: >-
+      github.event_name == 'pull_request_target' ||
+      (github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
+    runs-on: ubuntu-latest
+    steps:
+      - uses: FraiseHQ/cla-gate-action@v1.0.0
+        with:
+          cla-url: https://github.com/FraiseHQ/fraise/blob/main/CLA.md
+          signature-repo: FraiseHQ/cla-signatures
+          signature-branch: main
+          signature-token: ${{ secrets.CLA_SIGNATURES_TOKEN }}

@@ -1,0 +1,12 @@
+{
+  "entries": [
+    {
+      "login": "RonsenbergVI",
+      "reason": "project owner and copyright holder"
+    },
+    {
+      "login": "*[bot]",
+      "reason": "GitHub Apps; the [bot] suffix is reserved by GitHub"
+    }
+  ]
+}
