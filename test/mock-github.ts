@@ -6,12 +6,7 @@
  */
 
 import { once } from "node:events";
-import {
-	createServer,
-	type IncomingMessage,
-	type Server,
-	type ServerResponse,
-} from "node:http";
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 
 export const PR_REPO = "FraiseHQ/fraise";
@@ -51,18 +46,14 @@ function encode(value: unknown): string {
 	return Buffer.from(JSON.stringify(value)).toString("base64");
 }
 
-async function readBody(
-	request: IncomingMessage,
-): Promise<Record<string, string>> {
+async function readBody(request: IncomingMessage): Promise<Record<string, string>> {
 	const chunks: Buffer[] = [];
 	for await (const chunk of request) chunks.push(chunk as Buffer);
 	const raw = Buffer.concat(chunks).toString("utf8");
 	return raw ? (JSON.parse(raw) as Record<string, string>) : {};
 }
 
-export async function startMock(
-	overrides: Partial<MockState> = {},
-): Promise<Mock> {
+export async function startMock(overrides: Partial<MockState> = {}): Promise<Mock> {
 	const state: MockState = {
 		signatures: [],
 		blobSha: "blob1",
@@ -81,9 +72,7 @@ export async function startMock(
 	let staleReadsLeft = 0;
 
 	const server: Server = createServer((request, response) => {
-		void handle(request, response).catch(() =>
-			send(response, 500, { message: "mock error" }),
-		);
+		void handle(request, response).catch(() => send(response, 500, { message: "mock error" }));
 	});
 
 	function send(response: ServerResponse, code: number, body: unknown): void {
@@ -99,23 +88,18 @@ export async function startMock(
 		return (request.headers.authorization ?? "").replace(/^Bearer /, "");
 	}
 
-	async function handle(
-		request: IncomingMessage,
-		response: ServerResponse,
-	): Promise<void> {
+	async function handle(request: IncomingMessage, response: ServerResponse): Promise<void> {
 		const path = new URL(request.url ?? "/", "http://mock").pathname;
 		const method = request.method ?? "GET";
 
 		// --- pull request repository, PR_TOKEN only ---
 		if (method === "GET" && path === `/repos/${PR_REPO}/pulls/1`) {
-			if (token(request) !== PR_TOKEN)
-				return send(response, 401, { message: "wrong token" });
+			if (token(request) !== PR_TOKEN) return send(response, 401, { message: "wrong token" });
 			return send(response, 200, { head: { sha: "deadbeef" } });
 		}
 
 		if (method === "GET" && path === `/repos/${PR_REPO}/pulls/1/commits`) {
-			if (token(request) !== PR_TOKEN)
-				return send(response, 401, { message: "wrong token" });
+			if (token(request) !== PR_TOKEN) return send(response, 401, { message: "wrong token" });
 			return send(response, 200, state.commits);
 		}
 
@@ -138,10 +122,7 @@ export async function startMock(
 			return send(response, 201, comment);
 		}
 
-		if (
-			method === "PATCH" &&
-			path.startsWith(`/repos/${PR_REPO}/issues/comments/`)
-		) {
+		if (method === "PATCH" && path.startsWith(`/repos/${PR_REPO}/issues/comments/`)) {
 			const id = Number(path.split("/").pop());
 			const body = await readBody(request);
 			for (const comment of state.comments) {
@@ -151,10 +132,7 @@ export async function startMock(
 		}
 
 		// --- signature repository, SIG_TOKEN only ---
-		if (
-			method === "GET" &&
-			path === `/repos/${SIG_REPO}/contents/signatures.json`
-		) {
+		if (method === "GET" && path === `/repos/${SIG_REPO}/contents/signatures.json`) {
 			if (token(request) !== SIG_TOKEN) {
 				return send(response, 403, {
 					message: "store read must use SIG_TOKEN",
@@ -176,22 +154,15 @@ export async function startMock(
 			});
 		}
 
-		if (
-			method === "GET" &&
-			path === `/repos/${SIG_REPO}/contents/allowlist.json`
-		) {
-			if (state.allowlist === null)
-				return send(response, 404, { message: "Not Found" });
+		if (method === "GET" && path === `/repos/${SIG_REPO}/contents/allowlist.json`) {
+			if (state.allowlist === null) return send(response, 404, { message: "Not Found" });
 			return send(response, 200, {
 				content: encode(state.allowlist),
 				sha: "allowlist-sha",
 			});
 		}
 
-		if (
-			method === "PUT" &&
-			path === `/repos/${SIG_REPO}/contents/signatures.json`
-		) {
+		if (method === "PUT" && path === `/repos/${SIG_REPO}/contents/signatures.json`) {
 			if (!state.storeWritable) {
 				return send(response, 403, {
 					message: "Resource not accessible by integration",
@@ -204,12 +175,9 @@ export async function startMock(
 			}
 
 			const body = await readBody(request);
-			if (body.sha !== state.blobSha)
-				return send(response, 409, { message: "stale blob sha" });
+			if (body.sha !== state.blobSha) return send(response, 409, { message: "stale blob sha" });
 
-			const decoded = JSON.parse(
-				Buffer.from(String(body.content), "base64").toString("utf8"),
-			);
+			const decoded = JSON.parse(Buffer.from(String(body.content), "base64").toString("utf8"));
 			staleSnapshot = state.signatures;
 			staleSnapshotSha = state.blobSha;
 			staleReadsLeft = state.staleReadsAfterWrite;

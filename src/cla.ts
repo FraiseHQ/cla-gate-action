@@ -67,9 +67,7 @@ const config = {
 };
 
 /** The exact phrase a contributor posts to sign. Must match what the comment tells them. */
-const MAGIC =
-	process.env.MAGIC_PHRASE ||
-	"I have read the CLA Document and I hereby sign the CLA";
+const MAGIC = process.env.MAGIC_PHRASE || "I have read the CLA Document and I hereby sign the CLA";
 const MARKER = "<!-- cla-gate -->";
 const UNMATCHED = "?unmatched-email";
 
@@ -136,14 +134,10 @@ function createClient(token: string): Client {
 
 		if (!response.ok) {
 			const detail = await response.text();
-			throw new Error(
-				`${init.method ?? "GET"} ${path} -> ${response.status}: ${detail}`,
-			);
+			throw new Error(`${init.method ?? "GET"} ${path} -> ${response.status}: ${detail}`);
 		}
 
-		return response.status === 204
-			? (undefined as T)
-			: ((await response.json()) as T);
+		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
 	}
 
 	async function paginate<T>(path: string): Promise<T[]> {
@@ -151,9 +145,7 @@ function createClient(token: string): Client {
 		const results: T[] = [];
 
 		for (let page = 1; ; page++) {
-			const batch = await request<T[]>(
-				`${path}${separator}per_page=100&page=${page}`,
-			);
+			const batch = await request<T[]>(`${path}${separator}per_page=100&page=${page}`);
 			results.push(...batch);
 			if (batch.length < 100) return results;
 		}
@@ -179,18 +171,12 @@ function headSha(pr: number): Promise<string> {
  * always blocks.
  */
 async function pullRequestAuthors(pr: number): Promise<string[]> {
-	const commits = await prApi.paginate<Commit>(
-		`/repos/${config.pr.repo}/pulls/${pr}/commits`,
-	);
+	const commits = await prApi.paginate<Commit>(`/repos/${config.pr.repo}/pulls/${pr}/commits`);
 	const logins = commits.map((commit) => commit.author?.login ?? UNMATCHED);
 	return [...new Set(logins)].sort();
 }
 
-function setStatus(
-	sha: string,
-	state: StatusState,
-	description: string,
-): Promise<void> {
+function setStatus(sha: string, state: StatusState, description: string): Promise<void> {
 	return prApi.request(`/repos/${config.pr.repo}/statuses/${sha}`, {
 		method: "POST",
 		body: JSON.stringify({
@@ -204,19 +190,14 @@ function setStatus(
 
 /** One bot comment per pull request, edited in place rather than appended. */
 async function upsertComment(pr: number, body: string): Promise<void> {
-	const comments = await prApi.paginate<Comment>(
-		`/repos/${config.pr.repo}/issues/${pr}/comments`,
-	);
+	const comments = await prApi.paginate<Comment>(`/repos/${config.pr.repo}/issues/${pr}/comments`);
 	const existing = comments.find((comment) => comment.body.includes(MARKER));
 
 	if (existing) {
-		await prApi.request(
-			`/repos/${config.pr.repo}/issues/comments/${existing.id}`,
-			{
-				method: "PATCH",
-				body: JSON.stringify({ body }),
-			},
-		);
+		await prApi.request(`/repos/${config.pr.repo}/issues/comments/${existing.id}`, {
+			method: "PATCH",
+			body: JSON.stringify({ body }),
+		});
 		return;
 	}
 
@@ -235,9 +216,7 @@ async function fetchStore(): Promise<StoreFile> {
 		`${storeContentsPath}?ref=${config.store.branch}`,
 	);
 
-	const parsed = JSON.parse(
-		Buffer.from(file.content, "base64").toString("utf8"),
-	) as Store;
+	const parsed = JSON.parse(Buffer.from(file.content, "base64").toString("utf8")) as Store;
 	return { signatures: parsed.signatures, blobSha: file.sha };
 }
 
@@ -251,9 +230,7 @@ async function saveStore(file: StoreFile, message: string): Promise<void> {
 				message,
 				branch: config.store.branch,
 				sha: file.blobSha,
-				content: Buffer.from(`${JSON.stringify(body, null, 2)}\n`).toString(
-					"base64",
-				),
+				content: Buffer.from(`${JSON.stringify(body, null, 2)}\n`).toString("base64"),
 			}),
 		});
 	} catch (error: unknown) {
@@ -282,16 +259,13 @@ const DEFAULT_ALLOWLIST: AllowlistEntry[] = [
 ];
 
 /** GitHub logins are case insensitive. */
-const equalLogins = (a: string, b: string): boolean =>
-	a.toLowerCase() === b.toLowerCase();
+const equalLogins = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 /** Glob match supporting `*` only, case insensitive. */
 function matchesLogin(pattern: string, login: string): boolean {
 	if (!pattern.includes("*")) return equalLogins(pattern, login);
 
-	const source = pattern
-		.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
-		.replaceAll("*", ".*");
+	const source = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*");
 	return new RegExp(`^${source}$`, "i").test(login);
 }
 
@@ -311,9 +285,7 @@ async function fetchAllowlist(): Promise<AllowlistEntry[]> {
 		const file = await storeApi.request<ContentsResponse>(
 			`/repos/${config.store.repo}/contents/${config.store.allowlistPath}?ref=${config.store.branch}`,
 		);
-		const parsed = JSON.parse(
-			Buffer.from(file.content, "base64").toString("utf8"),
-		) as Allowlist;
+		const parsed = JSON.parse(Buffer.from(file.content, "base64").toString("utf8")) as Allowlist;
 		stored = parsed.entries;
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -327,8 +299,7 @@ async function fetchAllowlist(): Promise<AllowlistEntry[]> {
 const findAllowlistEntry = (
 	allowlist: AllowlistEntry[],
 	login: string,
-): AllowlistEntry | undefined =>
-	allowlist.find((entry) => matchesLogin(entry.login, login));
+): AllowlistEntry | undefined => allowlist.find((entry) => matchesLogin(entry.login, login));
 
 // --- rendering ---------------------------------------------------------------
 
@@ -368,18 +339,13 @@ function writeOutput(name: string, value: string): void {
  */
 const SIGN_ATTEMPTS = 4;
 
-const sleep = (ms: number): Promise<void> =>
-	new Promise((r) => setTimeout(r, ms));
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 /** A 409 means the blob moved under us: another signer, or a cached read. */
 const isConflict = (error: unknown): boolean =>
 	error instanceof Error && error.message.includes("-> 409");
 
-async function sign(
-	pr: number,
-	login: string,
-	id: number,
-): Promise<Signature[]> {
+async function sign(pr: number, login: string, id: number): Promise<Signature[]> {
 	for (let attempt = 1; ; attempt++) {
 		const file = await fetchStore();
 
@@ -416,9 +382,7 @@ async function sign(
 			}
 
 			const backoff = 250 * 2 ** (attempt - 1);
-			console.log(
-				`store moved under us, retrying in ${backoff}ms (${attempt}/${SIGN_ATTEMPTS})`,
-			);
+			console.log(`store moved under us, retrying in ${backoff}ms (${attempt}/${SIGN_ATTEMPTS})`);
 			await sleep(backoff);
 		}
 	}
@@ -454,11 +418,7 @@ async function check(pr: number, known?: Signature[]): Promise<GateResult> {
 		return { signed: true, missing };
 	}
 
-	await setStatus(
-		sha,
-		"failure",
-		`Awaiting CLA signature: ${missing.join(", ")}`,
-	);
+	await setStatus(sha, "failure", `Awaiting CLA signature: ${missing.join(", ")}`);
 	await upsertComment(pr, pendingComment(missing));
 	console.error(`awaiting signature: ${missing.join(", ")}`);
 	return { signed: false, missing };
@@ -507,8 +467,7 @@ function contextFromEvent(): EventContext {
 			throw new Error("issue_comment fired on an issue, not a pull request");
 		}
 		const pr = event.issue.number;
-		if (pr === undefined)
-			throw new Error("issue_comment event carries no issue number");
+		if (pr === undefined) throw new Error("issue_comment event carries no issue number");
 
 		const body = event.comment?.body ?? "";
 		const login = event.comment?.user?.login;
@@ -532,18 +491,13 @@ function contextFromEvent(): EventContext {
  * One run: record the signature if this was a signing comment, then check —
  * against the signatures we just wrote, not against a fresh read of them.
  */
-async function gate(
-	pr: number,
-	signer?: { login: string; id: number },
-): Promise<GateResult> {
+async function gate(pr: number, signer?: { login: string; id: number }): Promise<GateResult> {
 	const known = signer ? await sign(pr, signer.login, signer.id) : undefined;
 	return check(pr, known);
 }
 
 function usage(): never {
-	console.error(
-		"usage: cla.ts {sign <pr> <login> <user-id> | check <pr> | allowlist}",
-	);
+	console.error("usage: cla.ts {sign <pr> <login> <user-id> | check <pr> | allowlist}");
 	process.exit(2);
 }
 

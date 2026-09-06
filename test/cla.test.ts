@@ -7,30 +7,14 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
-import {
-	type Mock,
-	PR_REPO,
-	PR_TOKEN,
-	SIG_REPO,
-	SIG_TOKEN,
-	startMock,
-} from "./mock-github.ts";
+import { type Mock, PR_REPO, PR_TOKEN, SIG_REPO, SIG_TOKEN, startMock } from "./mock-github.ts";
 
 const run = promisify(execFile);
-const script = join(
-	dirname(fileURLToPath(import.meta.url)),
-	"..",
-	"src",
-	"cla.ts",
-);
+const script = join(dirname(fileURLToPath(import.meta.url)), "..", "src", "cla.ts");
 
 type Result = { code: number; output: string };
 
-async function cla(
-	mock: Mock,
-	args: string[],
-	env: Record<string, string> = {},
-): Promise<Result> {
+async function cla(mock: Mock, args: string[], env: Record<string, string> = {}): Promise<Result> {
 	const options = {
 		env: {
 			...process.env,
@@ -121,12 +105,7 @@ test("signing is idempotent by account id, so a rename cannot duplicate", async 
 	t.after(() => mock.close());
 
 	await cla(mock, ["sign", "1", "octocat", "583231"]);
-	const { output } = await cla(mock, [
-		"sign",
-		"1",
-		"octocat-renamed",
-		"583231",
-	]);
+	const { output } = await cla(mock, ["sign", "1", "octocat-renamed", "583231"]);
 
 	assert.equal(mock.state.signatures.length, 1);
 	assert.match(output, /already signed/);
@@ -181,10 +160,7 @@ test("the stored allowlist exempts named logins and reports why", async (t) => {
 
 test("an allowlist entry does not exempt anyone else", async (t) => {
 	const mock = await startMock({
-		commits: [
-			{ author: { login: "stranger" } },
-			{ author: { login: "RonsenbergVI" } },
-		],
+		commits: [{ author: { login: "stranger" } }, { author: { login: "RonsenbergVI" } }],
 		allowlist: {
 			entries: [{ login: "RonsenbergVI", reason: "project owner" }],
 		},
@@ -343,18 +319,10 @@ test("sustained staleness fails with an explanation, never a duplicate", async (
 	t.after(() => mock.close());
 
 	await cla(mock, ["gate", "1", "octocat", "583231"]);
-	const { code, output } = await cla(mock, [
-		"gate",
-		"1",
-		"someone-else",
-		"999",
-	]);
+	const { code, output } = await cla(mock, ["gate", "1", "someone-else", "999"]);
 
 	assert.equal(code, 1);
-	assert.match(
-		output,
-		/could not record someone-else's signature after 4 attempts/,
-	);
+	assert.match(output, /could not record someone-else's signature after 4 attempts/);
 	assert.match(output, /Re-running the job is safe/);
 	assert.equal(mock.state.signatures.length, 1);
 });
@@ -415,10 +383,7 @@ test("action path: the signing comment signs and passes in one run", async (t) =
 	assert.equal(code, 0, output);
 	assert.equal(mock.state.statuses.at(-1)?.state, "success");
 	assert.equal(mock.state.signatures.length, 1);
-	assert.equal(
-		(mock.state.signatures[0] as { login: string }).login,
-		"octocat",
-	);
+	assert.equal((mock.state.signatures[0] as { login: string }).login, "octocat");
 });
 
 test("action path: the phrase inside a longer comment still signs", async (t) => {
@@ -441,11 +406,7 @@ test("action path: an unrelated comment re-checks without signing", async (t) =>
 	const mock = await startMock();
 	t.after(() => mock.close());
 
-	const env = await withEvent(
-		t,
-		"issue_comment",
-		commentEvent("any updates on this?"),
-	);
+	const env = await withEvent(t, "issue_comment", commentEvent("any updates on this?"));
 	const { code } = await cla(mock, ["gate"], env);
 
 	assert.equal(code, 1);
@@ -457,11 +418,7 @@ test("action path: a custom magic phrase is honoured", async (t) => {
 	const mock = await startMock();
 	t.after(() => mock.close());
 
-	const env = await withEvent(
-		t,
-		"issue_comment",
-		commentEvent("I agree to the CLA."),
-	);
+	const env = await withEvent(t, "issue_comment", commentEvent("I agree to the CLA."));
 	const { code } = await cla(mock, ["gate"], {
 		...env,
 		MAGIC_PHRASE: "I agree to the CLA.",
