@@ -2,9 +2,18 @@
 /**
  * CLA gate.
  *
- *   cla.ts sign      <pr> <login> <user-id>   record a signature
- *   cla.ts check     <pr>                     set the cla/signed status on the PR head
- *   cla.ts allowlist                          print the effective allowlist
+ *   cla.ts gate                             read the GitHub event, sign if it is a
+ *                                           signing comment, then check
+ *   cla.ts gate  <pr> [<login> <user-id>]   the same, driven by hand
+ *   cla.ts sign  <pr> <login> <user-id>     record a signature only
+ *   cla.ts check <pr>                       set the cla/signed status on the PR head
+ *   cla.ts allowlist                        print the effective allowlist
+ *
+ * `gate` is what the action runs. It exists because sign-then-check as two
+ * processes reads the signature store twice, and GitHub's contents API can
+ * still serve the pre-write blob milliseconds after the write returns 200 —
+ * so the check would report the signer as unsigned and fail a run whose
+ * signature had in fact landed.
  *
  * Two repositories, two tokens:
  *
@@ -17,7 +26,7 @@
  * No dependencies: run with Node >= 22.18 (type stripping, global fetch).
  */
 
-import { appendFileSync } from "node:fs";
+import { appendFileSync, readFileSync } from "node:fs";
 
 // --- configuration -----------------------------------------------------------
 
@@ -57,7 +66,10 @@ const config = {
 	},
 };
 
-const MAGIC = "I have read the CLA Document and I hereby sign the CLA";
+/** The exact phrase a contributor posts to sign. Must match what the comment tells them. */
+const MAGIC =
+	process.env.MAGIC_PHRASE ||
+	"I have read the CLA Document and I hereby sign the CLA";
 const MARKER = "<!-- cla-gate -->";
 const UNMATCHED = "?unmatched-email";
 
@@ -124,10 +136,14 @@ function createClient(token: string): Client {
 
 		if (!response.ok) {
 			const detail = await response.text();
-			throw new Error(`${init.method ?? "GET"} ${path} -> ${response.status}: ${detail}`);
+			throw new Error(
+				`${init.method ?? "GET"} ${path} -> ${response.status}: ${detail}`,
+			);
 		}
 
-		return response.status === 204 ? (undefined as T) : ((await response.json()) as T);
+		return response.status === 204
+			? (undefined as T)
+			: ((await response.json()) as T);
 	}
 
 	async function paginate<T>(path: string): Promise<T[]> {
@@ -135,7 +151,9 @@ function createClient(token: string): Client {
 		const results: T[] = [];
 
 		for (let page = 1; ; page++) {
-			const batch = await request<T[]>(`${path}${separator}per_page=100&page=${page}`);
+			const batch = await request<T[]>(
+				`${path}${separator}per_page=100&page=${page}`,
+			);
 			results.push(...batch);
 			if (batch.length < 100) return results;
 		}
@@ -161,12 +179,18 @@ function headSha(pr: number): Promise<string> {
  * always blocks.
  */
 async function pullRequestAuthors(pr: number): Promise<string[]> {
-	const commits = await prApi.paginate<Commit>(`/repos/${config.pr.repo}/pulls/${pr}/commits`);
+	const commits = await prApi.paginate<Commit>(
+		`/repos/${config.pr.repo}/pulls/${pr}/commits`,
+	);
 	const logins = commits.map((commit) => commit.author?.login ?? UNMATCHED);
 	return [...new Set(logins)].sort();
 }
 
-function setStatus(sha: string, state: StatusState, description: string): Promise<void> {
+function setStatus(
+	sha: string,
+	state: StatusState,
+	description: string,
+): Promise<void> {
 	return prApi.request(`/repos/${config.pr.repo}/statuses/${sha}`, {
 		method: "POST",
 		body: JSON.stringify({
@@ -180,14 +204,19 @@ function setStatus(sha: string, state: StatusState, description: string): Promis
 
 /** One bot comment per pull request, edited in place rather than appended. */
 async function upsertComment(pr: number, body: string): Promise<void> {
-	const comments = await prApi.paginate<Comment>(`/repos/${config.pr.repo}/issues/${pr}/comments`);
+	const comments = await prApi.paginate<Comment>(
+		`/repos/${config.pr.repo}/issues/${pr}/comments`,
+	);
 	const existing = comments.find((comment) => comment.body.includes(MARKER));
 
 	if (existing) {
-		await prApi.request(`/repos/${config.pr.repo}/issues/comments/${existing.id}`, {
-			method: "PATCH",
-			body: JSON.stringify({ body }),
-		});
+		await prApi.request(
+			`/repos/${config.pr.repo}/issues/comments/${existing.id}`,
+			{
+				method: "PATCH",
+				body: JSON.stringify({ body }),
+			},
+		);
 		return;
 	}
 
@@ -206,7 +235,9 @@ async function fetchStore(): Promise<StoreFile> {
 		`${storeContentsPath}?ref=${config.store.branch}`,
 	);
 
-	const parsed = JSON.parse(Buffer.from(file.content, "base64").toString("utf8")) as Store;
+	const parsed = JSON.parse(
+		Buffer.from(file.content, "base64").toString("utf8"),
+	) as Store;
 	return { signatures: parsed.signatures, blobSha: file.sha };
 }
 
@@ -220,7 +251,9 @@ async function saveStore(file: StoreFile, message: string): Promise<void> {
 				message,
 				branch: config.store.branch,
 				sha: file.blobSha,
-				content: Buffer.from(`${JSON.stringify(body, null, 2)}\n`).toString("base64"),
+				content: Buffer.from(`${JSON.stringify(body, null, 2)}\n`).toString(
+					"base64",
+				),
 			}),
 		});
 	} catch (error: unknown) {
@@ -249,13 +282,16 @@ const DEFAULT_ALLOWLIST: AllowlistEntry[] = [
 ];
 
 /** GitHub logins are case insensitive. */
-const equalLogins = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
+const equalLogins = (a: string, b: string): boolean =>
+	a.toLowerCase() === b.toLowerCase();
 
 /** Glob match supporting `*` only, case insensitive. */
 function matchesLogin(pattern: string, login: string): boolean {
 	if (!pattern.includes("*")) return equalLogins(pattern, login);
 
-	const source = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replaceAll("*", ".*");
+	const source = pattern
+		.replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+		.replaceAll("*", ".*");
 	return new RegExp(`^${source}$`, "i").test(login);
 }
 
@@ -275,7 +311,9 @@ async function fetchAllowlist(): Promise<AllowlistEntry[]> {
 		const file = await storeApi.request<ContentsResponse>(
 			`/repos/${config.store.repo}/contents/${config.store.allowlistPath}?ref=${config.store.branch}`,
 		);
-		const parsed = JSON.parse(Buffer.from(file.content, "base64").toString("utf8")) as Allowlist;
+		const parsed = JSON.parse(
+			Buffer.from(file.content, "base64").toString("utf8"),
+		) as Allowlist;
 		stored = parsed.entries;
 	} catch (error: unknown) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -289,7 +327,8 @@ async function fetchAllowlist(): Promise<AllowlistEntry[]> {
 const findAllowlistEntry = (
 	allowlist: AllowlistEntry[],
 	login: string,
-): AllowlistEntry | undefined => allowlist.find((entry) => matchesLogin(entry.login, login));
+): AllowlistEntry | undefined =>
+	allowlist.find((entry) => matchesLogin(entry.login, login));
 
 // --- rendering ---------------------------------------------------------------
 
@@ -321,31 +360,80 @@ function writeOutput(name: string, value: string): void {
 
 // --- commands ----------------------------------------------------------------
 
-async function sign(pr: number, login: string, id: number): Promise<void> {
-	const file = await fetchStore();
+/**
+ * Records a signature and returns the store as it now stands, so a caller in
+ * the same process can check against it without re-reading. Re-reading is the
+ * bug this returns exist to avoid: the contents API is cached, and a read
+ * issued immediately after a successful write can still return the old blob.
+ */
+const SIGN_ATTEMPTS = 4;
 
-	if (hasSignedId(file.signatures, id)) {
-		console.log(`${login} has already signed`);
-		return;
+const sleep = (ms: number): Promise<void> =>
+	new Promise((r) => setTimeout(r, ms));
+
+/** A 409 means the blob moved under us: another signer, or a cached read. */
+const isConflict = (error: unknown): boolean =>
+	error instanceof Error && error.message.includes("-> 409");
+
+async function sign(
+	pr: number,
+	login: string,
+	id: number,
+): Promise<Signature[]> {
+	for (let attempt = 1; ; attempt++) {
+		const file = await fetchStore();
+
+		if (hasSignedId(file.signatures, id)) {
+			console.log(`${login} has already signed`);
+			return file.signatures;
+		}
+
+		file.signatures.push({
+			login,
+			id,
+			date: new Date().toISOString(),
+			repo: config.pr.repo,
+			pr,
+		});
+
+		try {
+			await saveStore(file, `cla: ${login} signed (${config.pr.repo}#${pr})`);
+			console.log(`recorded signature for ${login} in ${config.store.repo}`);
+			return file.signatures;
+		} catch (error: unknown) {
+			// The write is a compare-and-swap on the blob sha, so a conflict
+			// means someone signed between our read and our write — or that
+			// our read came from the contents cache and was already behind.
+			// Either way the answer is the same: read again and redo it.
+			if (!isConflict(error)) throw error;
+			if (attempt >= SIGN_ATTEMPTS) {
+				throw new Error(
+					`could not record ${login}'s signature after ${SIGN_ATTEMPTS} attempts: ` +
+						`${config.store.path} kept changing under us. Either several people are ` +
+						`signing at once, or the contents API is serving a cached copy. ` +
+						`Re-running the job is safe — signing is idempotent by account id.`,
+				);
+			}
+
+			const backoff = 250 * 2 ** (attempt - 1);
+			console.log(
+				`store moved under us, retrying in ${backoff}ms (${attempt}/${SIGN_ATTEMPTS})`,
+			);
+			await sleep(backoff);
+		}
 	}
-
-	file.signatures.push({
-		login,
-		id,
-		date: new Date().toISOString(),
-		repo: config.pr.repo,
-		pr,
-	});
-
-	await saveStore(file, `cla: ${login} signed (${config.pr.repo}#${pr})`);
-	console.log(`recorded signature for ${login} in ${config.store.repo}`);
 }
 
-async function check(pr: number): Promise<GateResult> {
-	const [sha, authors, file, allowlist] = await Promise.all([
+/**
+ * @param known signatures already in hand from a sign in this same process.
+ *              Passing them skips the re-read that the contents API cache
+ *              would otherwise make unreliable.
+ */
+async function check(pr: number, known?: Signature[]): Promise<GateResult> {
+	const [sha, authors, signatures, allowlist] = await Promise.all([
 		headSha(pr),
 		pullRequestAuthors(pr),
-		fetchStore(),
+		known ? Promise.resolve(known) : fetchStore().then((f) => f.signatures),
 		fetchAllowlist(),
 	]);
 
@@ -357,7 +445,7 @@ async function check(pr: number): Promise<GateResult> {
 			console.log(`${login}: allowlisted (${exempt.reason})`);
 			continue;
 		}
-		if (!hasSignedLogin(file.signatures, login)) missing.push(login);
+		if (!hasSignedLogin(signatures, login)) missing.push(login);
 	}
 
 	if (missing.length === 0) {
@@ -366,7 +454,11 @@ async function check(pr: number): Promise<GateResult> {
 		return { signed: true, missing };
 	}
 
-	await setStatus(sha, "failure", `Awaiting CLA signature: ${missing.join(", ")}`);
+	await setStatus(
+		sha,
+		"failure",
+		`Awaiting CLA signature: ${missing.join(", ")}`,
+	);
 	await upsertComment(pr, pendingComment(missing));
 	console.error(`awaiting signature: ${missing.join(", ")}`);
 	return { signed: false, missing };
@@ -380,8 +472,78 @@ async function printAllowlist(): Promise<void> {
 	}
 }
 
+type EventContext = {
+	pr: number;
+	signer?: { login: string; id: number };
+};
+
+/**
+ * Derives the pull request and, if this run was triggered by a signing
+ * comment, the signer — by reading the event payload GitHub already wrote to
+ * disk.
+ *
+ * Deliberately not passed in as workflow arguments. Interpolating
+ * `${{ ... }}` into a shell command means a YAML expression that can break in
+ * ways nothing catches until a contributor is waiting: a folded block turns a
+ * multi-line expression into one containing literal newlines, and the job
+ * silently does the wrong thing. Reading the event needs no interpolation at
+ * all, so the `run:` line is a constant.
+ *
+ * It also means the magic phrase is matched here rather than in a workflow
+ * `if:`, so the two cannot disagree about what counts as a signature.
+ */
+function contextFromEvent(): EventContext {
+	const eventPath = required("GITHUB_EVENT_PATH");
+	const eventName = required("GITHUB_EVENT_NAME");
+
+	const event = JSON.parse(readFileSync(eventPath, "utf8")) as {
+		pull_request?: { number?: number };
+		issue?: { number?: number; pull_request?: unknown };
+		comment?: { body?: string; user?: { login?: string; id?: number } };
+	};
+
+	if (eventName === "issue_comment") {
+		if (!event.issue?.pull_request) {
+			throw new Error("issue_comment fired on an issue, not a pull request");
+		}
+		const pr = event.issue.number;
+		if (pr === undefined)
+			throw new Error("issue_comment event carries no issue number");
+
+		const body = event.comment?.body ?? "";
+		const login = event.comment?.user?.login;
+		const id = event.comment?.user?.id;
+
+		// Any other comment on the pull request is just a re-check.
+		if (!body.includes(MAGIC) || login === undefined || id === undefined) {
+			return { pr };
+		}
+		return { pr, signer: { login, id } };
+	}
+
+	const pr = event.pull_request?.number ?? event.issue?.number;
+	if (pr === undefined) {
+		throw new Error(`no pull request number in a ${eventName} event payload`);
+	}
+	return { pr };
+}
+
+/**
+ * One run: record the signature if this was a signing comment, then check —
+ * against the signatures we just wrote, not against a fresh read of them.
+ */
+async function gate(
+	pr: number,
+	signer?: { login: string; id: number },
+): Promise<GateResult> {
+	const known = signer ? await sign(pr, signer.login, signer.id) : undefined;
+	return check(pr, known);
+}
+
 function usage(): never {
-	console.error("usage: cla.ts {sign <pr> <login> <user-id> | check <pr> | allowlist}");
+	console.error(
+		"usage: cla.ts {sign <pr> <login> <user-id> | check <pr> | allowlist}",
+	);
 	process.exit(2);
 }
 
@@ -389,6 +551,26 @@ async function main(argv: string[]): Promise<void> {
 	const [command, ...args] = argv;
 
 	switch (command) {
+		case "gate": {
+			const [pr, login, id] = args;
+			if ((login && !id) || (!login && id)) usage();
+
+			// No arguments: this is the action, and the event on disk is the
+			// source of truth. Arguments: a human at a terminal.
+			const ctx: EventContext = pr
+				? {
+						pr: Number(pr),
+						signer: login && id ? { login, id: Number(id) } : undefined,
+					}
+				: contextFromEvent();
+
+			const result = await gate(ctx.pr, ctx.signer);
+			writeOutput("signed", String(result.signed));
+			writeOutput("missing", result.missing.join(" "));
+
+			if (!result.signed && config.failOnUnsigned) process.exitCode = 1;
+			return;
+		}
 		case "sign": {
 			const [pr, login, id] = args;
 			if (!pr || !login || !id) usage();

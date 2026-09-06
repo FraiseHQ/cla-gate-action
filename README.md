@@ -46,11 +46,10 @@ jobs:
        contains(github.event.comment.body, 'I have read the CLA Document and I hereby sign the CLA'))
     runs-on: ubuntu-latest
     steps:
-      - uses: FraiseHQ/cla-gate-action@v1.0.0
+      - uses: FraiseHQ/cla-gate-action@v1
         with:
           cla-url: https://github.com/your-org/your-repo/blob/main/CLA.md
           signature-repo: your-org/cla-signatures
-          signature-branch: main
           signature-token: ${{ secrets.CLA_SIGNATURES_TOKEN }}
 ```
 
@@ -63,13 +62,29 @@ Finally, in branch protection, require the **`cla/signed`** status check.
 
 ## How it works
 
+The workflow condition is one line and does not mention the signing phrase.
+Whether a comment is a signature is decided inside the action, from the event
+payload GitHub writes to disk — so the condition and the phrase cannot drift
+apart, and the `run:` line interpolates nothing. A `${{ }}` expression inside a
+folded YAML block is a silent-failure machine: the job skips, or runs with a
+mangled expression, and nobody finds out until a contributor is waiting.
+
 A contributor opens a pull request. The action resolves every commit author,
 compares them against the signature file, and writes the `cla/signed` status
 against the head SHA. If anyone is missing it posts one comment naming them.
 
 The contributor replies with the exact phrase. The `issue_comment` trigger fires,
-the signature is appended to the file in your signature repository, and the same
-run re-checks and flips the status to success.
+the action reads the phrase out of the event payload, and a single process
+appends the signature and re-checks — deliberately one
+process, because the contents API can serve a cached copy of the file
+milliseconds after a successful write, and a check that re-read the store would
+report the signer as unsigned and fail a run whose signature had landed.
+
+Writes are a compare-and-swap on the blob sha, so two people signing at the same
+moment produce a conflict rather than a lost signature. The conflicting write is
+retried with backoff, up to four attempts; if it still cannot settle it fails
+with an explanation rather than writing a duplicate. Re-running is always safe —
+signing is idempotent by account id.
 
 Signatures record the account id as well as the login, so a later rename can't
 produce a duplicate, and lookups are case insensitive because GitHub logins are.
@@ -175,6 +190,15 @@ step starts failing with a 403. The durable alternative is a GitHub App
 installed on your organisation with contents write on the signature repository,
 minted per run with `actions/create-github-app-token`, passed as
 `signature-token`.
+
+## Prior art
+
+[cla-assistant](https://github.com/cla-assistant/cla-assistant) is the original
+and stores signatures for you as a hosted service.
+[contributor-assistant/github-action](https://github.com/contributor-assistant/github-action)
+was the action-shaped version of it and was archived in March 2026. This is a
+smaller thing built on the same idea: keep the state in a repository, keep the
+gate in a commit status.
 
 ## Licence
 
