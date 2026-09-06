@@ -27,6 +27,13 @@ export type MockState = {
 	statuses: Status[];
 	commits: Commit[];
 	storeWritable: boolean;
+	/**
+	 * Reproduces the real failure: GitHub's contents API is cached, so a read
+	 * issued right after a successful write can still return the pre-write
+	 * blob. When set, the next N reads serve the content as it was before the
+	 * most recent write.
+	 */
+	staleReadsAfterWrite: number;
 };
 
 export type Mock = {
@@ -55,8 +62,14 @@ export async function startMock(overrides: Partial<MockState> = {}): Promise<Moc
 		statuses: [],
 		commits: [{ author: { login: "octocat" } }],
 		storeWritable: true,
+		staleReadsAfterWrite: 0,
 		...overrides,
 	};
+
+	// The snapshot a stale read serves, and how many stale reads are left.
+	let staleSnapshot: unknown[] = [];
+	let staleSnapshotSha = "";
+	let staleReadsLeft = 0;
 
 	const server: Server = createServer((request, response) => {
 		void handle(request, response).catch(() => send(response, 500, { message: "mock error" }));
@@ -101,7 +114,10 @@ export async function startMock(overrides: Partial<MockState> = {}): Promise<Moc
 
 		if (method === "POST" && path === `/repos/${PR_REPO}/issues/1/comments`) {
 			const body = await readBody(request);
-			const comment = { id: state.comments.length + 1, body: String(body.body) };
+			const comment = {
+				id: state.comments.length + 1,
+				body: String(body.body),
+			};
 			state.comments.push(comment);
 			return send(response, 201, comment);
 		}
@@ -118,31 +134,53 @@ export async function startMock(overrides: Partial<MockState> = {}): Promise<Moc
 		// --- signature repository, SIG_TOKEN only ---
 		if (method === "GET" && path === `/repos/${SIG_REPO}/contents/signatures.json`) {
 			if (token(request) !== SIG_TOKEN) {
-				return send(response, 403, { message: "store read must use SIG_TOKEN" });
+				return send(response, 403, {
+					message: "store read must use SIG_TOKEN",
+				});
+			}
+			// A cached response carries the pre-write body *and* the pre-write
+			// sha, which is what makes the follow-up write conflict rather
+			// than silently duplicating.
+			let served = state.signatures;
+			let servedSha = state.blobSha;
+			if (staleReadsLeft > 0) {
+				staleReadsLeft -= 1;
+				served = staleSnapshot;
+				servedSha = staleSnapshotSha;
 			}
 			return send(response, 200, {
-				content: encode({ signatures: state.signatures }),
-				sha: state.blobSha,
+				content: encode({ signatures: served }),
+				sha: servedSha,
 			});
 		}
 
 		if (method === "GET" && path === `/repos/${SIG_REPO}/contents/allowlist.json`) {
 			if (state.allowlist === null) return send(response, 404, { message: "Not Found" });
-			return send(response, 200, { content: encode(state.allowlist), sha: "allowlist-sha" });
+			return send(response, 200, {
+				content: encode(state.allowlist),
+				sha: "allowlist-sha",
+			});
 		}
 
 		if (method === "PUT" && path === `/repos/${SIG_REPO}/contents/signatures.json`) {
 			if (!state.storeWritable) {
-				return send(response, 403, { message: "Resource not accessible by integration" });
+				return send(response, 403, {
+					message: "Resource not accessible by integration",
+				});
 			}
 			if (token(request) !== SIG_TOKEN) {
-				return send(response, 403, { message: "store write must use SIG_TOKEN" });
+				return send(response, 403, {
+					message: "store write must use SIG_TOKEN",
+				});
 			}
 
 			const body = await readBody(request);
 			if (body.sha !== state.blobSha) return send(response, 409, { message: "stale blob sha" });
 
 			const decoded = JSON.parse(Buffer.from(String(body.content), "base64").toString("utf8"));
+			staleSnapshot = state.signatures;
+			staleSnapshotSha = state.blobSha;
+			staleReadsLeft = state.staleReadsAfterWrite;
 			state.signatures = (decoded as { signatures: unknown[] }).signatures;
 			state.blobSha = `blob${Number(state.blobSha.slice(4)) + 1}`;
 			return send(response, 200, { commit: { sha: "written" } });

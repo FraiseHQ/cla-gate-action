@@ -57,6 +57,13 @@ inputs:
     required: false
     default: ""
 
+  magic-phrase:
+    description: >-
+      The exact phrase a contributor comments to sign. Change it and the
+      comment the action posts changes with it, so the two cannot disagree.
+    required: false
+    default: I have read the CLA Document and I hereby sign the CLA
+
   status-context:
     description: >-
       Name of the commit status. This is the context to require in branch
@@ -79,20 +86,29 @@ inputs:
 outputs:
   signed:
     description: '"true" when every contributor is signed or allowlisted.'
-    value: ${{ steps.check.outputs.signed }}
+    value: ${{ steps.gate.outputs.signed }}
   missing:
     description: Space separated logins still needing to sign.
-    value: ${{ steps.check.outputs.missing }}
+    value: ${{ steps.gate.outputs.missing }}
 
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+    - uses: actions/setup-node@v4
       with:
         node-version: ${{ inputs.node-version }}
 
-    - name: Record signature
-      if: github.event_name == 'issue_comment'
+    # One step, not two. Signing and checking in separate processes reads the
+    # signature store twice, and the contents API can serve the pre-write copy
+    # right after a successful write — which failed runs whose signature had
+    # in fact landed and needed a manual re-run.
+    #
+    # `run` takes no arguments and interpolates nothing. Everything it needs is
+    # in the environment, and the pull request and signer come from the event
+    # payload GitHub wrote to disk. A `${{ }}` expression inside a folded run
+    # block is a silent-failure machine; there isn't one here.
+    - name: CLA gate
+      id: gate
       shell: bash
       env:
         GH_TOKEN: ${{ inputs.token }}
@@ -103,27 +119,7 @@ runs:
         SIG_PATH: ${{ inputs.signature-path }}
         ALLOWLIST_PATH: ${{ inputs.allowlist-path }}
         ALLOWLIST: ${{ inputs.allowlist }}
-        STATUS_CONTEXT: ${{ inputs.status-context }}
-      run: >-
-        node "$GITHUB_ACTION_PATH/src/cla.ts" sign
-        "${{ github.event.issue.number }}"
-        "${{ github.event.comment.user.login }}"
-        "${{ github.event.comment.user.id }}"
-
-    - name: Check signatures
-      id: check
-      shell: bash
-      env:
-        GH_TOKEN: ${{ inputs.token }}
-        CLA_URL: ${{ inputs.cla-url }}
-        SIG_REPO: ${{ inputs.signature-repo }}
-        SIG_TOKEN: ${{ inputs.signature-token }}
-        SIG_BRANCH: ${{ inputs.signature-branch }}
-        SIG_PATH: ${{ inputs.signature-path }}
-        ALLOWLIST_PATH: ${{ inputs.allowlist-path }}
-        ALLOWLIST: ${{ inputs.allowlist }}
+        MAGIC_PHRASE: ${{ inputs.magic-phrase }}
         STATUS_CONTEXT: ${{ inputs.status-context }}
         FAIL_ON_UNSIGNED: ${{ inputs.fail-on-unsigned }}
-      run: >-
-        node "$GITHUB_ACTION_PATH/src/cla.ts" check
-        "${{ github.event.pull_request.number || github.event.issue.number }}"
+      run: node "$GITHUB_ACTION_PATH/src/cla.ts" gate
