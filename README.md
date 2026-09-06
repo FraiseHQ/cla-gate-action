@@ -62,7 +62,7 @@ Finally, in branch protection, require the **`cla/signed`** status check.
 
 ## How it works
 
-The workflow condition is one line and does not mention the signing phrase.
+The workflow condition can be one line and does not mention the signing phrase.
 Whether a comment is a signature is decided inside the action, from the event
 payload GitHub writes to disk — so the condition and the phrase cannot drift
 apart, and the `run:` line interpolates nothing. A `${{ }}` expression inside a
