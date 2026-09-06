@@ -497,7 +497,7 @@ async function gate(pr: number, signer?: { login: string; id: number }): Promise
 }
 
 function usage(): never {
-	console.error("usage: cla.ts {sign <pr> <login> <user-id> | check <pr> | allowlist}");
+	console.error("usage: cla.ts {gate [<pr> [<login> <user-id>]] | sign <pr> <login> <user-id> | check <pr> | allowlist}");
 	process.exit(2);
 }
 
