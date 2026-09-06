@@ -334,7 +334,7 @@ function writeOutput(name: string, value: string): void {
 /**
  * Records a signature and returns the store as it now stands, so a caller in
  * the same process can check against it without re-reading. Re-reading is the
- * bug this returns exist to avoid: the contents API is cached, and a read
+ * bug this return exists to avoid: the contents API is cached, and a read
  * issued immediately after a successful write can still return the old blob.
  */
 const SIGN_ATTEMPTS = 4;
